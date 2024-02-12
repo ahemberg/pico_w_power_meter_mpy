@@ -1,122 +1,85 @@
 import time
 import network
 import rp2
-import urequests
-import secrets
-from machine import Pin, ADC
+import lib.secrets as secrets
+from machine import Pin, ADC, Timer
 from time import sleep_ms
 import ntptime
-from collections import deque
-import math
+import gc
+import micropython
 
-### WIFI CODE, BREAK OUT
-### Make it retry until it connects. Without wifi and NTP measurements are meaningless
+import lib.wificonnection as wifi
+from lib.powermeter import PowerMeter
+from lib.influxclient import InfluxClient
+from lib.util import get_unix_timestamp
+
+led = Pin("LED", Pin.OUT)
+timer = Timer()
+
+def blink(timer):
+    led.toggle()
+    
+# Blink LED while init
+timer.init(freq=20, mode=Timer.PERIODIC, callback=blink)
 
 rp2.country('SE')
 
 wlan = network.WLAN(network.STA_IF)
-wlan.active(True)
-wlan.connect(secrets.WIFI_SSID, secrets.WIFI_PASS)
-
-max_wait = 10
-
-while max_wait > 0:
-    if wlan.status() < 0 or wlan.status() >= 3:
-        break
-    max_wait -= 1
-    print("Waiting for connection")
-    time.sleep(1)
-
-# Handle connection error
-if wlan.status() != 3:
-    raise RuntimeError('network connection failed')
-else:
-    print('connected')
-    status = wlan.ifconfig()
-    print('ip = ' + status[0])
-
+wifi.block_until_wifi_connected(wlan, secrets.WIFI_SSID, secrets.WIFI_PASS)
 
 ### SET TIME
 ntptime.settime()
 
-### ADC CODE
+timer.deinit()
+led.off()
 
-class Measurement():
-    power: int
-    timestamp: int
-
-    def __init__(self, power: int, timestamp: int) -> None:
-        self.power = power
-        self.timestamp = timestamp
-
-    def to_line(self):
-        return f"power,host=power_meter_dev value={self.power} {self.timestamp}"
-
-def measure_power(start_time: int) -> Measurement:
-    stop_time = time.ticks_us()
-    timestamp = time.mktime(time.gmtime())
-    delta_us = stop_time - start_time
-    imps = 1000000.0 / delta_us
-    return Measurement(imps * 3600, timestamp)
-
-
-# Send code
-
-def to_influx_payload(measurements: list) -> str:
-    return '\n'.join([measurement.to_line() for measurement in measurements])
-
-
-
-def send_measurements(measurements: list) -> bool:
-
-    url = f"https://{secrets.INFLUX_SERVER}:{secrets.INFLUX_PORT}/write?db={secrets.INFLUX_DATABASE}&precision=s&u={secrets.INFLUX_USER}&p={secrets.INFLUX_PASSWORD}"
-    headers = {
-        "User-Agent": "curl/8.1.2",
-        "Accept": "*/*",
-        "Content-Type": "application/x-www-form-urlencoded"
-    }
-
-    data = to_influx_payload(measurements)
-
-
-    response = urequests.post(url, headers=headers, data=data)
-
-    print(response.status_code)
-
-    response.close()
-    return True
-
-measuring = False
-start_time = 0
-last_sent = time.mktime(time.gmtime())
+last_sent = get_unix_timestamp()
     
 light_sensor = ADC(Pin(26));
-
-measurements = deque((), 200)
+power_meter = PowerMeter(100)
+influxClientPower = InfluxClient(hostname="power_meter", series_name="power", server=secrets.INFLUX_SERVER, database=secrets.INFLUX_DATABASE, user=secrets.INFLUX_USER, password=secrets.INFLUX_PASSWORD)
 
 while True:
     adcVal = light_sensor.read_u16();
 
-    if adcVal > 2000:
-        if measuring:
-            measurements.append(measure_power(start_time))
-            sleep_ms(50) # Sleep 50 milliseconds for pulse to die down
-        else:
-            measuring = True
-        start_time = time.ticks_us()
+    if adcVal > 1500:
+        start_time_new = time.ticks_us()
+        if power_meter.is_measuring:
+            power_meter.stop_measurement()
+        power_meter.start_measurement()
+        led.on()
+        sleep_ms(50) # Sleep 50 milliseconds for pulse to die down
+        led.off()
 
-    # Send measurements every 5 minutes or when more than 100 elements are stored
-    if len(measurements) > 20 or time.mktime(time.gmtime()) - last_sent > 300:
-        measuring = False
-        measurements_to_send = [measurements.popleft() for _i in range(min(len(measurements), 20))]
-        print("sending: ")
-        for m in measurements_to_send:
-            print(f"{m.timestamp}:{m.power}")
-        
-        if send_measurements(measurements_to_send):
-            print("Sending success!")
+    # Send measurements every 5 minutes or when more than 20 of the available queue is used elements are stored
+    if power_meter.queue_used_space() > .2 or get_unix_timestamp() - influxClientPower.last_sent > 300:
+
+        """
+        Assure wifi connection. If connection fails (for instance router down), then we will wait retry
+        every loop. This essentially stops measurements during internet outages. Fix this.
+        """        
+        if not wlan.isconnected():
+            connected = wifi.connect(wlan, secrets.WIFI_SSID, secrets.WIFI_PASS, wait_time=10)
         else:
-            ## Todo: The program will stop measuring until send is OK. Handle this with a back off
-            print("Failed to send!")
-            [measurements.append(m) for m in measurements_to_send]
+            connected = True    
+
+        if connected:
+            print(power_meter.queue_used_space())
+            led.on()
+            power_meter.cancel_measurement()
+
+            measurements_to_send = power_meter.pop_n_measurements(25)
+            for m in measurements_to_send:
+                print(f"{m.timestamp}:{m.power}")
+    
+            if not influxClientPower.send_measurements(measurements_to_send):
+                ## Todo: The program will stop measuring until send is OK. Handle this with a back off
+                print("Failed to send!")
+                power_meter.push_measurements(measurements_to_send)
+        
+            print(len(power_meter.measurements))
+            led.off()
+        else:
+            print("Failed to send measurements. No wifi connection")
+
 
