@@ -3,6 +3,7 @@ from collections import deque
 
 from lib.util import get_unix_timestamp
 
+
 class Measurement():
     power: int
     timestamp: int
@@ -11,7 +12,7 @@ class Measurement():
         self.power = power
         self.timestamp = timestamp
 
-    def to_line(self, host: str="power_meter", series: str="power", value_col: str="value") -> str:
+    def to_line(self, host: str = "power_meter", series: str = "power", value_col: str = "value") -> str:
         return f"{series},host={host} value={self.power} {self.timestamp}"
 
 
@@ -44,7 +45,7 @@ class PowerMeter():
 
     def pop_n_measurements(self, n: int):
         return [self.measurements.popleft() for _i in range(min(n, len(self.measurements)))]
-    
+
     def push_measurements(self, measurements: list) -> None:
         [self.measurements.append(m) for m in measurements]
 

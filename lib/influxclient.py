@@ -3,8 +3,9 @@ import urequests
 from lib.powermeter import Measurement
 from lib.util import get_unix_timestamp
 
+
 class InfluxClient():
-    last_sent: int = 2147483647 #Max timestamp
+    last_sent: int = 2147483647  # Max timestamp
     _hostname: str
     _series_name = str
     _influx_server: str
@@ -19,8 +20,15 @@ class InfluxClient():
         "Content-Type": "application/x-www-form-urlencoded"
     }
 
-    def __init__(self, hostname: str, series_name: str, server: str, database: str, user: str, password: str, port: int=8086) -> None:
-        
+    def __init__(self,
+                 hostname: str,
+                 series_name: str,
+                 server: str,
+                 database: str,
+                 user: str,
+                 password: str,
+                 port: int = 8086) -> None:
+
         self._hostname = hostname
         self._series_name = series_name
         self._influx_server = server
@@ -29,10 +37,8 @@ class InfluxClient():
         self._influx_password = password
         self._influx_port = port
 
-    
     def _to_influx_payload(self, measurements: list) -> str:
         return '\n'.join([measurement.to_line(host=self._hostname, series=self._series_name) for measurement in measurements])
-
 
     def send_measurements(self, measurements: list) -> bool:
         url = f"{self._influx_server}:{self._influx_port}/write?db={self._influx_database}&precision=s&u={self._influx_user}&p={self._influx_password}"
@@ -43,4 +49,3 @@ class InfluxClient():
         response.close()
         self.last_sent = get_unix_timestamp()
         return response.status_code == 204
-
