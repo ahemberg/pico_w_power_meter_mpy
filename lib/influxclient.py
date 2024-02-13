@@ -1,4 +1,4 @@
-import urequests
+import socket
 
 from lib.powermeter import Measurement
 from lib.util import get_unix_timestamp
@@ -38,14 +38,30 @@ class InfluxClient():
         self._influx_port = port
 
     def _to_influx_payload(self, measurements: list) -> str:
-        return '\n'.join([measurement.to_line(host=self._hostname, series=self._series_name) for measurement in measurements])
+        return '\n'.join([measurement.to_line(host=self._hostname, series=self._series_name).strip() for measurement in measurements])
 
-    def send_measurements(self, measurements: list) -> bool:
-        url = f"{self._influx_server}:{self._influx_port}/write?db={self._influx_database}&precision=s&u={self._influx_user}&p={self._influx_password}"
-        data = self._to_influx_payload(measurements)
-        print("sending")
-        response = urequests.post(url, headers=self._influx_headers, data=data)
-        print("sent")
-        response.close()
-        self.last_sent = get_unix_timestamp()
-        return response.status_code == 204
+    def send_using_socket(self, measurements: list) -> bool:
+        ai = socket.getaddrinfo("alehem.eu", 8086)
+        addr = ai[0][-1]
+
+        measurements_payload = self._to_influx_payload(measurements)
+
+        payload = f"POST /write?db=pico_dev&precision=s&u={self._influx_user}&p={self._influx_password} HTTP/1.1\n"
+        payload += f"Host: alehem.eu:8086\n"
+        payload += f"User-Agent: curl/8.1.2\n"
+        payload += f"Accept: */*\r\n"
+        payload += f"Content-Length: {len(measurements_payload)}\n"
+        payload += f"Content-Type: application/x-www-form-urlencoded\n"
+        payload += "\n"
+        payload += measurements_payload
+
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.connect(addr)
+        s.write(payload.encode('utf-8'))
+
+        response = s.recv(64).decode()
+        s.close()
+
+        if 'HTTP/1.1 204 No Content' in response:
+            return True
+        return False

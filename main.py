@@ -14,15 +14,20 @@ from lib.influxclient import InfluxClient
 from lib.util import get_unix_timestamp
 
 led = Pin("LED", Pin.OUT)
-timer = Timer()
+timer_led = Timer()
+timer_ntp = Timer()
 
 
 def blink(timer):
     led.toggle()
 
+def update_ntp(timer):
+    print("Updating NTP")
+    ntptime.settime()
+
 
 # Blink LED while init
-timer.init(freq=20, mode=Timer.PERIODIC, callback=blink)
+timer_led.init(freq=20, mode=Timer.PERIODIC, callback=blink)
 
 rp2.country('SE')
 
@@ -30,15 +35,18 @@ wlan = network.WLAN(network.STA_IF)
 wifi.block_until_wifi_connected(wlan, secrets.WIFI_SSID, secrets.WIFI_PASS)
 
 # SET TIME
+print("Updating NTP and setting timer")
 ntptime.settime()
+timer_ntp.init(period=86400000, mode=Timer.PERIODIC, callback=update_ntp)
+print(f"Updating ntp done. Time is now {time.gmtime()}")
 
-timer.deinit()
+timer_led.deinit()
 led.off()
 
 last_sent = get_unix_timestamp()
 
 light_sensor = ADC(Pin(26))
-power_meter = PowerMeter(100)
+power_meter = PowerMeter(50)
 influxClientPower = InfluxClient(
     hostname="power_meter",
     series_name="power",
@@ -76,17 +84,12 @@ while True:
             print(power_meter.queue_used_space())
             led.on()
             power_meter.cancel_measurement()
-
             measurements_to_send = power_meter.pop_n_measurements(25)
-            for m in measurements_to_send:
-                print(f"{m.timestamp}:{m.power}")
 
-            if not influxClientPower.send_measurements(measurements_to_send):
+            if not influxClientPower.send_using_socket(measurements_to_send):
                 # Todo: The program will stop measuring until send is OK. Handle this with a back off
-                print("Failed to send!")
+                print("Failed to send measurements!")
                 power_meter.push_measurements(measurements_to_send)
-
-            print(len(power_meter.measurements))
             led.off()
         else:
             print("Failed to send measurements. No wifi connection")

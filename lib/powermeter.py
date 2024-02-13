@@ -5,10 +5,10 @@ from lib.util import get_unix_timestamp
 
 
 class Measurement():
-    power: int
+    power: float
     timestamp: int
 
-    def __init__(self, power: int, timestamp: int) -> None:
+    def __init__(self, power: float, timestamp: int) -> None:
         self.power = power
         self.timestamp = timestamp
 
@@ -32,9 +32,8 @@ class PowerMeter():
 
     def stop_measurement(self) -> None:
         if not self.is_measuring:
-            print("Not recording measurement as no measurement was started")
             return
-        delta_us = time.ticks_us() - self.start_time
+        delta_us = time.ticks_diff(time.ticks_us(), self.start_time)
         timestamp = get_unix_timestamp()
         imps = 1000000.0 / delta_us
         self.measurements.append(Measurement(imps * 3600, timestamp))
