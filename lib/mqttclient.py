@@ -33,7 +33,8 @@ class MqttClient():
             {
                 'power': measurement.power,
                 'timestamp': measurement.timestamp,
-                'measurement': self._series_name
+                'measurement': self._series_name,
+                'host': self._hostname
             }
         ).encode('utf-8')
 

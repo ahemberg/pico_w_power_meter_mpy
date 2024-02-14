@@ -40,7 +40,8 @@ The board will then publish mqtt messages to `MQTT_TOPIC` formatted as JSON, lik
 {
     'power': '<MEASURED POWER>',
     'timestamp': '<UNIX TIMESTAMP>',
-    'measurement': <SERIESNAME>
+    'measurement': <SERIESNAME>,
+    'host': <HOSTNAME>
 }
 ```
 
@@ -93,7 +94,8 @@ Json from pico
 {
     'power': '<MEASURED POWER>',
     'timestamp': '<UNIX TIMESTAMP>',
-    'measurement': <SERIESNAME>
+    'measurement': <SERIESNAME>,
+    'host': <HOSTNAME>
 }
 ```
 write to influx:
