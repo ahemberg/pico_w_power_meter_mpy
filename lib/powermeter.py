@@ -12,8 +12,8 @@ class Measurement():
         self.power = power
         self.timestamp = timestamp
 
-    def to_line(self, host: str = "power_meter", series: str = "power", value_col: str = "value") -> str:
-        return f"{series},host={host} value={self.power} {self.timestamp}"
+    def to_dict(self) -> dict:
+        return self.__dict__
 
 
 class PowerMeter():
