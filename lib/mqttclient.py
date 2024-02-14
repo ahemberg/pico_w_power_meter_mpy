@@ -26,24 +26,29 @@ class MqttClient():
         self._mqtt_server = server.encode()
         self._mqtt_topic = topic.encode()
         self._mqtt_port = port
+
+        self._mqtt_client = MQTTClient(
+            client_id=self._hostname, server=self._mqtt_server, port=self._mqtt_port, keepalive=7200, ssl=False)
+
+        print("Connecting mqtt")
         self.connect()
+        print("MQTT connected")
 
     def _to_mqtt_payload(self, measurement: Measurement) -> bytes:
         return json.dumps(
             {
                 'power': measurement.power,
                 'timestamp': measurement.timestamp,
-                'measurement': self._series_name
+                'measurement': self._series_name,
+                'host': self._hostname
             }
         ).encode('utf-8')
 
     def connect(self) -> bool:
         try:
-            self._mqtt_client = MQTTClient(
-                client_id=self._hostname, server=self._mqtt_server, port=self._mqtt_port, keepalive=7200, ssl=False)
+            self._mqtt_client.connect()
             return self._mqtt_client.connect() == 0
-        except OSError as e:
-            self._mqtt_client = None
+        except Exception as e:
             print("Failed to connect!")
             print(e)
             return False
@@ -55,21 +60,20 @@ class MqttClient():
 
         try:
             self._mqtt_client.disconnect()
-        except OSError as e:
+        except Exception as e:
             print("Disconnect failed")
             print(e)
-        self._mqtt_client = None
 
     def send_using_mqtt(self, measurements: list) -> bool:
 
         try:
-            print("sending")
             [self._mqtt_client.publish(self._mqtt_topic, self._to_mqtt_payload(
                 measurement)) for measurement in measurements]
             self.last_sent = get_unix_timestamp()
             return True
         except Exception as e:
             print("Failed to send")
+            print(e)
             self.disconnect()
             self.connect()
             return False
