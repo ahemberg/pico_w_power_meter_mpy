@@ -5,6 +5,8 @@ import lib.secrets as secrets
 from machine import Pin, ADC, Timer
 from time import sleep_ms
 import ntptime
+import _thread
+import gc
 
 import lib.wificonnection as wifi
 from lib.powermeter import PowerMeter
@@ -41,52 +43,83 @@ print(f"Updating ntp done. Time is now {time.gmtime()}")
 
 timer_led.deinit()
 led.off()
-
 last_sent = get_unix_timestamp()
+powermeter = PowerMeter(200)
 
-light_sensor = ADC(Pin(26))
-power_meter = PowerMeter(200)
+# Responsible for measuring data
+def thread_0(power_meter: PowerMeter) -> None:
+    global lock
+    light_sensor = ADC(Pin(26))
+    print("starting thread 0")
+    while True:
+        adcVal = light_sensor.read_u16()
 
-mqttclient = MqttClient(
-    hostname=secrets.HOSTNAME,
-    series_name=secrets.SERIESNAME,
-    server=secrets.MQTT_SERVER,
-    topic=secrets.MQTT_TOPIC)
+        if adcVal > 2000:
+            if power_meter.is_measuring:
+                power_meter.stop_measurement()
+            power_meter.start_measurement()
+            led.on()
+            print("got measurement")
+            sleep_ms(50)  # Sleep 50 milliseconds for pulse to die down
+            led.off()
+        
+        if lock.acquire(0):
+            #Not waiting for the lock. If its locked we continue measuring and send at another time
+            #print("Putting on send queue")
+            power_meter.put_on_send_queue()
+            lock.release()
+        else:
+            print("currently sending, will wait to push")
+        gc.collect()
+    
 
-while True:
-    adcVal = light_sensor.read_u16()
 
-    if adcVal > 1500:
-        start_time_new = time.ticks_us()
-        if power_meter.is_measuring:
-            power_meter.stop_measurement()
-        power_meter.start_measurement()
-        led.on()
-        sleep_ms(50)  # Sleep 50 milliseconds for pulse to die down
-        led.off()
+# Responsible for sending the data 
+def thread_1(power_meter: PowerMeter) -> None:
+    mqttclient = MqttClient(
+        hostname=secrets.HOSTNAME,
+        series_name=secrets.SERIESNAME,
+        server=secrets.MQTT_SERVER,
+        topic=secrets.MQTT_TOPIC)
+    
+    print("Starting thred 1")
 
-    # Dump messages once we have built up 20 or 5 minutes has passed
-    if power_meter.queue_used_space() > .1 or get_unix_timestamp() - mqttclient.last_sent > 300:
+    global lock
+    while True:
 
-        """
-        Assure wifi connection. If connection fails (for instance router down), then we will wait retry
-        every loop. This essentially stops measurements during internet outages. Fix this.
-        """
+        while not power_meter.has_measurements_to_send():
+            #Idle here until there is something in the measurement queue
+            pass
+
         if not wlan.isconnected():
-            connected = wifi.connect(
-                wlan, secrets.WIFI_SSID, secrets.WIFI_PASS, wait_time=10)
+                connected = wifi.connect(
+                    wlan, secrets.WIFI_SSID, secrets.WIFI_PASS, wait_time=10)
         else:
             connected = True
 
         if connected:
-            print(power_meter.queue_used_space())
-            led.on()
-            power_meter.cancel_measurement()
-            measurements_to_send = power_meter.pop_n_measurements(100)
-            if not mqttclient.send_using_mqtt(measurements_to_send):
-                # Todo: The program will stop measuring until send is OK. Handle this with a back off
-                print("Failed to send measurements!")
-                power_meter.push_measurements(measurements_to_send)
-            led.off()
+            lock.acquire()
+            try:
+                print("Sent")
+                measurements = power_meter.pop_n_measurements(10)
+                if measurement and not mqttclient.send_using_mqtt([measurement]):
+                    print("Sending failed")
+                    power_meter.push(measurement)
+                lock.release()
+            except IndexError:
+                # IndexError is thrown if there are no measurements. 
+                # Release the lock and wait a second. This case should
+                # never happen, but multithreading is scary
+                print("Got index error")
+                lock.release()
+                time.sleep_ms(1000)
         else:
-            print("Failed to send measurements. No wifi connection")
+            print("Failed to send measurements. Not connected to wifi")
+            #time.sleep_ms(5000) # wait five seconds before trying again
+        
+        time.sleep()
+        gc.collect()
+
+lock = _thread.allocate_lock()
+second_thread = _thread.start_new_thread(thread_0, (powermeter,))
+thread_1(powermeter)
