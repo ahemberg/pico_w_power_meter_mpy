@@ -3,7 +3,7 @@
 A MicroPython project to read a home power meter's impulse LED, convert the rate to watts, and publish this data to an MQTT server. The program is written for the RPi Pico W.
 
 ## Requirements
-Consider revising to "This program is written in MicroPython for the Pico W. Instructions for installing MicroPython can be found on the  [official raspberry pi website](https://projects.raspberrypi.org/en/projects/get-started-pico-w/1)
+This program is written in MicroPython for the Pico W. Instructions for installing MicroPython can be found on the  [official raspberry pi website](https://projects.raspberrypi.org/en/projects/get-started-pico-w/1)
 
 Additional requirements used are `mqtt-simple` and `mqtt-robust`, these need to be installed on the board using mip. Connect to the board and install:
 
