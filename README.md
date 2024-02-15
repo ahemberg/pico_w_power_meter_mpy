@@ -21,12 +21,11 @@ The microcontroller will publish to an MQTT broker via the onboard Wi-Fi chip. T
 ```python
 
 WIFI_SSID = "SSID-To Connect to"
-WIFI_PASS = "wifi passwword"
+WIFI_PASS = "wifi password"
 
-# Note, there is no address resolution configured, this should be an IP
-
-MQTT_SERVER = "SERVER ADDRESS" 
+MQTT_SERVER = "SERVER ADDRESS" # Note, there is no address resolution configured, this should be an IP
 MQTT_PORT = 1883
+
 HOSTNAME = "Name of this board"
 SERIESNAME = "Name of influxdb series"
 MQTT_TOPIC = "MQTT topic to publish to"
