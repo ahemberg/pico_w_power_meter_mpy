@@ -56,7 +56,7 @@ graph TD;
     telegraf-->influxdb;
 ```
 
-I use [mosquitto](https://mosquitto.org/) for the mqtt broker with an anonumous config like so: 
+I use [mosquitto](https://mosquitto.org/) for the mqtt broker with an anonymous config like so: 
 
 mosquitto.conf
 ```conf
