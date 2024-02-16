@@ -1,10 +1,12 @@
 import json
+
 from umqtt.simple import MQTTClient
+
 from lib.powermeter import Measurement
 from lib.util import get_unix_timestamp
 
 
-class MqttClient():
+class MqttClient:
     last_sent: int = 2147483647  # Max timestamp
     _hostname: bytes
     _series_name = str
@@ -12,6 +14,7 @@ class MqttClient():
     _mqtt_topic: bytes
     _mqtt_port: int
     _mqtt_client: MQTTClient = None
+
     # Todo enable auth for mqtt. This is disabled for devices on local lan now
 
     def __init__(self,
@@ -26,24 +29,29 @@ class MqttClient():
         self._mqtt_server = server.encode()
         self._mqtt_topic = topic.encode()
         self._mqtt_port = port
+
+        print("connecting")
         self.connect()
+        print("connected")
 
     def _to_mqtt_payload(self, measurement: Measurement) -> bytes:
-        return json.dumps(
+        a = json.dumps(
             {
-                'power': measurement.power,
+                measurement.type: measurement.power,
                 'timestamp': measurement.timestamp,
                 'measurement': self._series_name,
                 'host': self._hostname
             }
         ).encode('utf-8')
+        print(a)
+        return (a)
 
     def connect(self) -> bool:
         try:
             self._mqtt_client = MQTTClient(
                 client_id=self._hostname, server=self._mqtt_server, port=self._mqtt_port, keepalive=7200, ssl=False)
             return self._mqtt_client.connect() == 0
-        except OSError as e:
+        except Exception as e:
             self._mqtt_client = None
             print("Failed to connect!")
             print(e)
