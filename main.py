@@ -1,14 +1,15 @@
 import time
-import network
-import rp2
-import lib.secrets as secrets
-from machine import Pin, ADC, Timer
 from time import sleep_ms
-import ntptime
 
+import network
+import ntptime
+import rp2
+from machine import Pin, ADC, Timer
+
+import lib.secrets as secrets
 import lib.wificonnection as wifi
-from lib.powermeter import PowerMeter
 from lib.mqttclient import MqttClient
+from lib.powermeter import PowerMeter
 from lib.util import get_unix_timestamp
 
 led = Pin("LED", Pin.OUT)
@@ -44,7 +45,8 @@ led.off()
 
 last_sent = get_unix_timestamp()
 
-light_sensor = ADC(Pin(26))
+light_sensor_power = ADC(Pin(27))
+light_sensor_reactive = ADC(Pin(28))
 power_meter = PowerMeter(200)
 
 mqttclient = MqttClient(
@@ -54,15 +56,27 @@ mqttclient = MqttClient(
     topic=secrets.MQTT_TOPIC)
 
 while True:
-    adcVal = light_sensor.read_u16()
+    # This is a time critical operation and slowing down will give us errouneous values
 
-    if adcVal > 1500:
-        start_time_new = time.ticks_us()
-        if power_meter.is_measuring:
-            power_meter.stop_measurement()
-        power_meter.start_measurement()
+    adcValPower = light_sensor_power.read_u16()
+    adcValReactive = light_sensor_reactive.read_u16()
+    read_ticks = time.ticks_us()
+
+    if adcValPower > 1500 and adcValReactive > 1500:
+        power_meter.make_power_measurement(read_ticks)
+        power_meter.make_reactive_power_measurement(read_ticks)
         led.on()
         sleep_ms(50)  # Sleep 50 milliseconds for pulse to die down
+        led.off()
+    elif adcValPower > 1500:
+        power_meter.make_power_measurement(read_ticks)
+        led.on()
+        sleep_ms(25)
+        led.off()
+    elif adcValReactive > 1500:
+        power_meter.make_reactive_power_measurement(read_ticks)
+        led.on()
+        sleep_ms(25)  # Sleep 50 milliseconds for pulse to die down
         led.off()
 
     # Dump messages once we have built up 20 or 5 minutes has passed
@@ -81,11 +95,12 @@ while True:
         if connected:
             print(power_meter.queue_used_space())
             led.on()
-            power_meter.cancel_measurement()
+            power_meter.cancel_power_measurement()
+            power_meter.cancel_reactive_power_measurement()
             measurements_to_send = power_meter.pop_n_measurements(100)
             if not mqttclient.send_using_mqtt(measurements_to_send):
                 # Todo: The program will stop measuring until send is OK. Handle this with a back off
-                print("Failed to send measurements!")
+                print("Failed t o send measurements!")
                 power_meter.push_measurements(measurements_to_send)
             led.off()
         else:
